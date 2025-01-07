@@ -11,80 +11,86 @@ public class Barcode_GS1_128
 
     public Barcode_GS1_128(string barcodeString)
     {
-        // fix part's length to even amount of characters
-        var segments = barcodeString.Split('(', '\'');
-        var segmentsNew = new List<string>();
-        foreach (var segment in segments.Where(s => s.Length > 2))
-        {
-            var appIdentifier = segment[..2];
-            var partValue = segment.Replace(")", "")[2..];
-            if (partValue.Length % 2 != 0)
-                partValue = "0" + partValue;
-            
-            segmentsNew.Add($"({appIdentifier}){partValue}");
-        }
-        
-        barcodeString = string.Join("", segmentsNew);
-        
         var sum = 0;
+        var multiply = 2;
         
-        // Quiet zone start, documented min-width = 10x
-        PushDot(true, 10);
+        PushDot(true, 10); // Quiet zone start
         
         PushChar(105); // Start Code C
         sum += 105;
         PushChar(102); // FNC1
         sum += 102;
 
-        var temp = string.Empty;
-        var multiply = 2;
-        foreach (var character in barcodeString)
+        var segments = barcodeString.Split('(', '\'');
+        var isVariableLengthSegment = false;
+        foreach (var segment in segments.Where(s => s.Length > 2))
         {
-            // Start of application identifier
-            if (character is '(')
+            var appIdentifier = segment[..2];
+            var segmentValue = segment.Replace(")", "")[2..];
+
+            // Previous segment variable-length? than first close this segment
+            if (isVariableLengthSegment)
             {
                 PushChar(102); // FNC1
                 sum += 102 * multiply;
                 multiply++;
-                continue;
             }
-            
-            // End of application identifier, skip
-            if (character == ')')
-                continue;
-
-            
-            if (string.IsNullOrEmpty(temp))
-                temp += character;
-            else
-            {
-                temp += character;
-                if (!int.TryParse(temp, out var parse))
-                    throw new Exception("GS1-128-C supports only 0-9, ( and )");
-                temp = string.Empty;
-                sum += parse * multiply;
-                PushChar(parse);
-                multiply++;
-            }
-        }
-        
-        if (!string.IsNullOrEmpty(temp))
-        {
-            PushChar(100);
-            sum += 100 * multiply;
-            var parse = (temp[0] - '0');
-            if (parse is < 0 or > 9)
-                throw new Exception("Last Digit Error");
-
-            parse += 16;
-            PushChar(parse);
-            sum += parse * (multiply + 1);
-        }
-
-        PushChar(sum % 103); //Checksum
-        PushChar(106); // Stop
                 
-        // Quiet zone end, documented min-width = 10x
+            isVariableLengthSegment = appIdentifier == "10";
+
+            // app identifier, always 2-characters
+            if (!int.TryParse(appIdentifier, out var parsedAppIdentifier))
+                throw new InfoException("GS1-128-C supports only 0-9 for app identifiers");
+            sum += parsedAppIdentifier * multiply;
+            PushChar(parsedAppIdentifier);
+            multiply++;
+
+            // add prefix for fixed-length / min-length
+            if (!isVariableLengthSegment && segmentValue.Length % 2 != 0)
+                segmentValue = "0" + segmentValue;
+            
+            // segment value, in blocks of 2 characters, and eventually last block as 1 character
+            for (var i = 0; i < segmentValue.Length; i += 2)
+            {
+                var part = segmentValue.Substring(i, Math.Min(2, segmentValue.Length - i));
+                if (!int.TryParse(part, out var parsedPart))
+                    throw new InfoException("GS1-128-C supports only 0-9, ( and )");
+
+                // part-length 1, than switch to CodeSet B
+                if (part.Length == 1)
+                {
+                    PushChar(100); // Code B
+                    sum += 100 * multiply;
+                    multiply++;
+
+                    // actual part
+                    parsedPart += 16; // +16 to get the right character from codeset B
+                    sum += parsedPart * multiply;
+                    PushChar(parsedPart);
+                    multiply++;
+                    
+                    // back to Code C
+                    PushChar(99); 
+                    sum += 99 * multiply;
+                    multiply++;
+                }
+                else
+                {
+                    sum += parsedPart * multiply;
+                    PushChar(parsedPart);
+                    multiply++;
+                }
+            }
+        }
+
+        //Checksum
+        var checkCharacter = sum % 103;
+        PushChar(checkCharacter);
+        
+        // Stop
+        PushChar(106); 
+                
+        // Quiet zone end
         PushDot(true, 10);
     }
 
@@ -95,7 +101,7 @@ public class Barcode_GS1_128
         var shiftAdjustment = (width - barWidth * tags.Count) / 2;
 
         if (barWidth < 1)
-            throw new Exception("Pixel per dot < 1, barcode doesn't fit in given width");
+            throw new InfoException("Pixel per dot < 1, barcode doesn't fit in given width");
 
         var bmp = new Bitmap(width, height);
 
@@ -295,7 +301,7 @@ public class Barcode_GS1_128
                 PushPattern(2, 1, 3, 3, 1, 1);
                 break;
             case 53:
-                PushPattern(3, 1, 1, 1, 2, 3);
+                PushPattern(2, 1, 3, 1, 3, 1);
                 break;
             case 54:
                 PushPattern(3, 1, 1, 1, 2, 3);
