@@ -40,7 +40,7 @@ public class Barcode_GS1_128
 
             // app identifier, always 2-characters
             if (!int.TryParse(appIdentifier, out var parsedAppIdentifier))
-                throw new InfoException("GS1-128-C supports only 0-9 for app identifiers");
+                throw new ApplicationException("GS1-128-C supports only 0-9 for app identifiers");
             sum += parsedAppIdentifier * multiply;
             PushChar(parsedAppIdentifier);
             multiply++;
@@ -54,7 +54,7 @@ public class Barcode_GS1_128
             {
                 var part = segmentValue.Substring(i, Math.Min(2, segmentValue.Length - i));
                 if (!int.TryParse(part, out var parsedPart))
-                    throw new InfoException("GS1-128-C supports only 0-9, ( and )");
+                    throw new ApplicationException("GS1-128-C supports only 0-9, ( and )");
 
                 // part-length 1, than switch to CodeSet B
                 if (part.Length == 1)
@@ -101,7 +101,7 @@ public class Barcode_GS1_128
         var shiftAdjustment = (width - barWidth * tags.Count) / 2;
 
         if (barWidth < 1)
-            throw new InfoException("Pixel per dot < 1, barcode doesn't fit in given width");
+            throw new ApplicationException("Pixel per dot < 1, barcode doesn't fit in given width");
 
         var bmp = new Bitmap(width, height);
 
